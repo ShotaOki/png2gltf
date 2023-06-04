@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="jp">
+  <head>
+    <meta charset="utf-8" />
+    <title>Image Converter</title>
+    <style>
+      span {
+        padding-left: 1rem;
+      }
+      .form-label {
+        min-width: 200px;
+        font-size: small;
+        font-weight: bolder;
+        display: inline-block;
+      }
+    </style>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="https://rawgit.com/outboxcraft/beauter/master/beauter.min.css"
+    />
+    <script
+      async
+      src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"
+    ></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.152.2/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.152.2/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      // Three.jsからエクスポーターを取得する
+      import * as THREE from "three";
+      import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
+      import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+      /**
+       * モデルを定義する
+       */
+      const GeometryCreater = {
+        /**
+         * セレクトボックスを定義する
+         */
+        setupSelectBox: () => {
+          /** セレクトボックスのデータを定義する */
+          const shapeList = [
+            { text: "平面(写真、画像)", value: "panel" },
+            { text: "球体(RICHO THETA)", value: "sphere" },
+            { text: "円筒(パノラマ写真)", value: "cylinder" },
+          ];
+          const select = document.querySelector("#shape-format");
+          shapeList.forEach((item) => {
+            const option = document.createElement("option");
+            option.innerText = item.text;
+            option.value = item.value;
+            select.appendChild(option);
+          });
+          /** 初期選択状態はURLから取得する */
+          select.value = SearchParam().method;
+          /** イベント: セレクトボックスが選択された */
+          select.addEventListener("change", (e) => {
+            const texture_name = ViewParam().texture;
+            try {
+              const lastPathIndex = location.pathname.lastIndexOf("/");
+              const file_name = location.pathname
+                .substring(lastPathIndex)
+                .replace("/", "");
+              location.href = `./${file_name}?method=${e.target.value}&texture=${texture_name}`;
+            } catch (e) {
+              location.href = `./index.html?method=${e.target.value}&texture=${texture_name}`;
+            }
+          });
+        },
+        /** 平面のパネルを作成する */
+        panel: (scene, material) => {
+          scene.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material));
+        },
+        /** 球体を作成する */
+        sphere: (scene, material) => {
+          material.side = THREE.DoubleSide;
+          scene.add(
+            new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), material)
+          );
+        },
+        /** 円筒を作成する */
+        cylinder: (scene, material) => {
+          material.side = THREE.DoubleSide;
+          scene.add(
+            new THREE.Mesh(
+              new THREE.CylinderGeometry(1, 1, 1, 32, 1, true),
+              material
+            )
+          );
+        },
+      };
+      /**
+       * Parmaeter Define
+       */
+      const SearchParam = () => {
+        const params = new URLSearchParams(window.location.search);
+        return {
+          method: params.get("method") || "panel",
+          texture: params.get("texture") || "image",
+        };
+      };
+      const ViewParam = () => {
+        const search_param = SearchParam();
+        let image_name = search_param.texture;
+        try {
+          image_name = document.querySelector("#export-file-name").value;
+          if (image_name.length == 0) {
+            throw new Error();
+          }
+        } catch (e) {
+          image_name = search_param.texture;
+        }
+        return {
+          method: search_param.method,
+          texture: image_name,
+        };
+      };
+      /**
+       * 空のテクスチャを設定する
+       */
+      const createMaterial = () => {
+        /** ダミーの画像(Base64形式の1px 1px) */
+        const image = new Image();
+        image.src =
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        /** ダミーの画像を設定したテクスチャを作成する */
+        return new THREE.MeshBasicMaterial({
+          map: new THREE.Texture(image),
+          side: THREE.FrontSide,
+          alphaTest: true,
+          opacity: 1.0,
+          transparent: true,
+          alphaToCoverage: true,
+        });
+      };
+      /**
+       * マテリアルを設定する
+       */
+      const createModel = (scene) => {
+        const material = createMaterial();
+        GeometryCreater[SearchParam().method](scene, material);
+      };
+      /**
+       * モデルを出力する
+       */
+      const execExport = (scene, image_uri) => {
+        // GLBのデータの内容をtextareaに出力する
+        new GLTFExporter().parse(
+          scene,
+          (gltf_data) => {
+            gltf_data.images[0].uri = image_uri;
+            document.querySelector("#export").innerHTML = JSON.stringify(
+              gltf_data,
+              null,
+              2
+            );
+          },
+          () => {
+            console.log("failed");
+          }
+        );
+      };
+      /**
+       * シーンを作成する
+       */
+      const initScene = () => {
+        // 描画しない（モデルの親が必要になるだけ）ので、
+        // 空のシーンを作成する
+        return new THREE.Scene();
+      };
+      /**
+       * エントリポイント
+       */
+      window.onload = function () {
+        // シーンの作成をする
+        const scene = initScene();
+        // モデルの登録をする
+        createModel(scene);
+        // データを出力する
+        execExport(scene, "./" + SearchParam().texture + ".png");
+        // 基本情報の出力
+        document.querySelector("#export-file-name").value =
+          SearchParam().texture;
+        window.scene = scene;
+        // セレクトボックスを初期化する
+        GeometryCreater.setupSelectBox();
+      };
+      /**
+       * ボタン操作
+       */
+      window.copyButton = function () {
+        navigator.clipboard.writeText(
+          document.querySelector("#export").innerHTML
+        );
+        // 最終実行情報の出力
+        document.querySelector("#last-execution").innerHTML =
+          new Date().toLocaleString();
+        showsnackbar("sn1");
+      };
+      /**
+       * ファイル保存
+       */
+      window.save = function (blob, filename) {
+        const link = document.querySelector("#download-link");
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+      };
+      /**
+       * 文字列として保存する
+       */
+      window.saveString = function () {
+        save(
+          new Blob([document.querySelector("#export").innerHTML], {
+            type: "text/plain",
+          }),
+          ViewParam().texture + ".gltf"
+        );
+      };
+      /**
+       * ファイル選択
+       */
+      window.selectFile = function (event) {
+        const file = event.target.files[0];
+        const reader = new FileReader();
+        reader.addEventListener("load", (e) => {
+          // データを出力する
+          execExport(window.scene, reader.result);
+          // 最終実行情報の出力
+          document.querySelector("#last-load-file").innerHTML =
+            new Date().toLocaleString();
+        });
+
+        if (file) {
+          reader.readAsDataURL(file);
+        }
+      };
+    </script>
+  </head>
+  <body>
+    <div>
+      <div class="card" style="min-width: 300px; padding: 1rem; margin: 1rem">
+        <a style="display: none" id="download-link"></a>
+        <div
+          class="row"
+          style="
+            border-bottom-color: grey;
+            border-bottom-style: solid;
+            border-bottom-width: thin;
+          "
+        >
+          <div class="col m12">
+            <div class="form-label">できること</div>
+            <span
+              >PNG画像を色々な3Dオブジェクト(GLTF形式)に変換することができます</span
+            >
+          </div>
+          <div class="col m12">
+            <div class="form-label">使い方</div>
+            <span>①【3Dのフォーマット】で、元画像の種類を選択します</span><br />
+            <div class="form-label"></div>
+            <span>②【対象画像を選択する】で、PNG画像を選択します</span><br />
+            <div class="form-label"></div>
+            <span
+              >③JSONをgltf拡張子で保存する、または【ファイルに保存】ボタンで直接保存します</span
+            >
+          </div>
+          <div class="col m12">
+            <div class="form-label">カスタマイズ</div>
+            <span
+              >GeometryCreaterに作成したい関数を追加します。関数内でthree.jsのオブジェクトを作ります</span
+            >
+          </div>
+        </div>
+        <div class="row">
+          <div class="col m12">
+            <div class="form-label">3Dのフォーマット</div>
+            <select id="shape-format"></select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col m12">
+            <div class="form-label">
+              対象画像を選択する
+              <div style="position: absolute">
+                最終反映日時:<span id="last-load-file"></span>
+              </div>
+            </div>
+            <input
+              class="_round button"
+              type="file"
+              name="image-upload"
+              onchange="selectFile(event)"
+            />
+          </div>
+        </div>
+        <div class="row">
+          <div class="col m12">
+            <div
+              class="_full_width"
+              style="
+                text-align: center;
+                background-color: #fff;
+                border-top-style: solid;
+                border-top-color: grey;
+                border-top-width: thin;
+              "
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="32"
+                height="32"
+                fill="#333"
+                class="bi bi-caret-down-fill"
+                viewBox="0 0 16 16"
+              >
+                <path
+                  d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"
+                />
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col m6">
+            <div class="form-label">
+              クリップボードにコピーする
+              <div style="position: absolute">
+                最終実行時間:<span id="last-execution"></span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onclick="copyButton()"
+              class="_primary"
+              style="margin-left: 1rem"
+            >
+              実行
+            </button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col m6">
+            <div class="form-label">ファイルに保存する</div>
+            <button
+              type="button"
+              onclick="saveString()"
+              class="_primary"
+              style="margin-left: 1rem"
+            >
+              保存
+            </button>
+          </div>
+          <div class="col m6">
+            <div class="form-label" style="min-width: 0px; margin-right: 1rem">
+              保存後のファイル名
+            </div>
+            <input
+              style="width: 140px"
+              type="text"
+              placeholder="filename"
+              id="export-file-name"
+            />.gltf
+          </div>
+        </div>
+      </div>
+    </div>
+    <pre><code id="export"></code></pre>
+    <div id="sn1" class="snackbar _primary _box _shadow">
+      クリップボードにコピーしました
+    </div>
+    <script src="https://rawgit.com/outboxcraft/beauter/master/beauter.min.js"></script>
+  </body>
+</html>
